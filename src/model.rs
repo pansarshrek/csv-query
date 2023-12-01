@@ -4,13 +4,14 @@ use std::collections::HashMap;
 pub type Column = String;
 pub type Columns = Vec<Column>;
 pub type Value = String;
-pub type Record = Vec<Value>;
+pub type Record = Vec<DataType>;
 
-// pub enum ColType {
-//     String(String),
-//     Float(f64),
-//     Int(i32),
-// }
+#[derive(Eq, Hash, PartialEq, Debug)]
+pub enum DataType {
+    String(String),
+    // Float(f64),
+    Int(i32),
+}
 
 #[derive(Eq, Hash, PartialEq, Debug)]
 pub struct Selection {
@@ -21,51 +22,75 @@ pub struct Selection {
 pub struct DataContext<'a> {
     table: &'a Table,
     selection: Vec<Selection>,
+
+    selected_records: Vec<&'a Record>,
 }
 
 impl DataContext<'_> {
     pub fn select(&mut self, selection: Selection) -> &DataContext {
         self.selection.push(selection);
+        let possible_records = self.table.get_possible(&self.selection);
+        self.selected_records = possible_records;
         self
     }
 
     pub fn count(&self) -> usize {
-        let vals = self.table.get_possible(&self.selection);
+        let vals = &self.selected_records;
         vals.iter().count()
     }
 
-    pub fn sum(&self, col: Column) -> Option<f64> {
+    pub fn sum(&self, col: Column) -> Option<i32> {
         self.table.get_col_index(&col).map(|i| {
-            self.table
-                .get_possible(&self.selection)
+            self.selected_records
                 .iter()
                 .map(|x| &x[i])
-                .map(|s| s.parse::<f64>().unwrap_or(0.0))
+                .filter(|x| match x {
+                    DataType::Int(_) => true,
+                    _ => false,
+                })
+                .map(|s| match s {
+                    DataType::Int(num) => num,
+                    _ => &0,
+                })
                 .sum()
         })
     }
 
-    pub fn max(&self, col: Column) -> Option<f64> {
+    pub fn max(&self, col: Column) -> Option<i32> {
         self.table.get_col_index(&col).map(|i| {
-            self.table
-                .get_possible(&self.selection)
+            self.selected_records
                 .iter()
                 .map(|x| &x[i])
-                .map(|s| s.parse::<f64>().unwrap_or(0.0))
-                .max_by(|x,y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Less))
-                .unwrap_or(0.0)
+                .filter(|x| match x {
+                    DataType::Int(_) => true,
+                    _ => false,
+                })
+                .map(|s| match s {
+                    DataType::Int(num) => num,
+                    _ => &0,
+                })
+                .max()
+                .unwrap_or(&0)
+                .clone()
         })
     }
 
-    pub fn min(&self, col: Column) -> Option<f64> {
+    pub fn min(&self, col: Column) -> Option<i32> {
         self.table.get_col_index(&col).map(|i| {
-            self.table
-                .get_possible(&self.selection)
+            self.selected_records
                 .iter()
                 .map(|x| &x[i])
-                .map(|s| s.parse::<f64>().unwrap_or(0.0))
-                .min_by(|x,y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Less))
-                .unwrap_or(0.0)
+                .filter(|x| match x {
+                    DataType::Int(_) => true,
+                    _ => false,
+                })
+                .map(|s| match s {
+                    DataType::Int(num) => num,
+                    _ => &0,
+                })
+                .min()
+                .unwrap_or(&0)
+                .clone()
         })
     }
 }
@@ -75,7 +100,6 @@ struct IndexValue {
     column: Column,
     value: Value,
 }
-
 
 pub struct Table {
     pub name: String,
@@ -99,6 +123,7 @@ impl Table {
         DataContext {
             table: self,
             selection: vec![],
+            selected_records: vec![],
         }
     }
 
@@ -121,7 +146,10 @@ impl Table {
             let column_name = self.columns.get(i).expect("column should exist");
             self.index_value(IndexValue {
                 column: String::from(column_name),
-                value: String::from(field),
+                value: match field {
+                    DataType::String(d) => String::from(d),
+                    DataType::Int(i) => i.to_string(),
+                },
             })
         }
 

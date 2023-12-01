@@ -130,7 +130,14 @@ fn main() {
             _ => (),
         }
         let fields = parse_csv_line(&buf, delim, Some(num_columns));
-        t.insert(fields);
+        let dts: Vec<model::DataType> = fields
+            .iter()
+            .map(|f| match f.parse::<i32>() {
+                Ok(num) => model::DataType::Int(num),
+                Err(_) => model::DataType::String(String::from(f)),
+            })
+            .collect();
+        t.insert(dts);
         buf.clear();
     }
 
@@ -139,8 +146,8 @@ fn main() {
         start.elapsed().as_millis()
     );
 
-    // let start_fetch = std::time::Instant::now();
-    // println!("Getting records...");
+    let start_fetch = std::time::Instant::now();
+    println!("Start timer...");
 
     let mut ctx = t.new_context();
     println!("count before select: {}", ctx.count());
@@ -149,12 +156,13 @@ fn main() {
     }
     println!("count after select: {}", ctx.count());
 
-    println!("sum age: {}", ctx.sum(String::from("age")).unwrap_or(0.0));
+    println!("sum age: {}", ctx.sum(String::from("age")).unwrap_or(0));
 
-    println!("max age: {}", ctx.max(String::from("age")).unwrap_or(0.0));
+    println!("max age: {}", ctx.max(String::from("age")).unwrap_or(0));
 
-    println!("min age: {}", ctx.min(String::from("age")).unwrap_or(0.0));
+    println!("min age: {}", ctx.min(String::from("age")).unwrap_or(0));
 
+    println!("Querying finished. Time elapsed: {} ms", start_fetch.elapsed().as_millis());
 
     // let records = t.get_possible(&commands.select);
     // let count = t.count(&commands.select);
