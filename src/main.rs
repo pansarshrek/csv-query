@@ -1,50 +1,27 @@
 mod model;
 
-mod catalog;
-
-use catalog::{Person, Catalog, Column, Value};
-
 use std::env;
 use std::fs;
 use std::io;
 use std::io::BufRead;
 
-fn example1() {
-    let mut catalog = Catalog::new();
-    catalog.insert(Person::new("Ni", "SWE", "M", 34, "Engineer"));
-    catalog.insert(Person::new("Si", "CN", "F", 34, "Engineer"));
-    catalog.insert(Person::new("Ai", "SWE", "M", 1, "Baby"));
-    catalog.insert(Person::new("Gu", "SWE", "F", 2, "Baby"));
-
-    println!("Hello catalog: {:#?}", catalog);
-
-    let select = vec![
-        Value {
-            column: Column::Country,
-            value: String::from("SWE"),
-        },
-        Value {
-            column: Column::Sex,
-            value: String::from("M"),
-        },
-    ];
-    println!(
-        "Get by {:#?}: {:#?}",
-        &select,
-        catalog.get_possible_rows(&select)
-    );
-}
-
 #[derive(Debug)]
 struct ReadColumnError {
-    message: String
+    message: String,
 }
 
-fn read_csv_line(reader: &mut io::BufReader<fs::File>, delim: &str) -> Result<Vec<String>, ReadColumnError> {
+fn read_csv_line(
+    reader: &mut io::BufReader<fs::File>,
+    delim: &str,
+) -> Result<Vec<String>, ReadColumnError> {
     let mut buf = String::new();
-    let some = reader.read_line(&mut buf).expect("read columns should work");
+    let some = reader
+        .read_line(&mut buf)
+        .expect("read columns should work");
     if some == 0 {
-        Result::Err(ReadColumnError { message: String::from("file empty") })
+        Result::Err(ReadColumnError {
+            message: String::from("file empty"),
+        })
     } else {
         let cols: Vec<String> = parse_csv_line(&buf, delim, None);
         Result::Ok(cols)
@@ -66,13 +43,12 @@ struct Commands {
 }
 
 impl Commands {
-
     fn from_args() -> Commands {
         let mut commands = Commands::new();
         let args: Vec<String> = env::args().skip(1).collect();
         match commands.parse(&args) {
             Err(_) => panic!("failed to parse command line args..."),
-            _ => ()
+            _ => (),
         }
         commands
     }
@@ -86,7 +62,7 @@ impl Commands {
 
     fn parse(&mut self, args: &Vec<String>) -> Result<(), &str> {
         let mut it = args.iter();
-        
+
         loop {
             let n = it.next();
             match n {
@@ -94,9 +70,9 @@ impl Commands {
                 Some(s) if s == "--in" => {
                     self.infile = match it.next() {
                         None => break,
-                        Some(s) => String::from(s)
+                        Some(s) => String::from(s),
                     };
-                },
+                }
                 Some(s) if s == "--select" => {
                     let stmt = match it.next() {
                         None => break,
@@ -104,7 +80,10 @@ impl Commands {
                     };
                     if stmt.contains("=") {
                         let parts: Vec<&str> = stmt.split("=").collect();
-                        let sel = model::Selection{column: String::from(parts[0]), value: String::from(parts[1]) };
+                        let sel = model::Selection {
+                            column: String::from(parts[0]),
+                            value: parts[1].split(",").map(String::from).collect(),
+                        };
                         self.select.push(sel);
                     }
                 }
@@ -115,7 +94,7 @@ impl Commands {
         }
 
         if self.infile == "" {
-            return Err("ERROR: no in file specified")
+            return Err("ERROR: no in file specified");
         }
         return Ok(());
     }
@@ -132,11 +111,14 @@ fn main() {
     };
     let mut r = io::BufReader::new(f);
     let delim = ",";
-    
+
+    let start = std::time::Instant::now();
+    println!("Loading files...");
+
     let columns = read_csv_line(&mut r, delim).expect("to have columns");
     let num_columns = columns.len();
     let mut t = model::Table::new(&commands.infile, columns);
-    
+
     let mut buf = String::new();
     loop {
         match r.read_line(&mut buf) {
@@ -144,14 +126,37 @@ fn main() {
             Err(e) => {
                 println!("failed to read line {}", e);
                 break;
-            },
+            }
             _ => (),
         }
-        let fields = parse_csv_line(&buf, delim , Some(num_columns));
+        let fields = parse_csv_line(&buf, delim, Some(num_columns));
         t.insert(fields);
         buf.clear();
     }
 
-    let records = t.get_possible_rows(&commands.select);
-    println!("Got records: {:#?}", records);
+    println!(
+        "Files loaded. Time elapsed: {} ms",
+        start.elapsed().as_millis()
+    );
+
+    // let start_fetch = std::time::Instant::now();
+    // println!("Getting records...");
+
+    let mut ctx = t.new_context();
+    println!("count before select: {}", ctx.count());
+    for s in commands.select {
+        ctx.select(s);
+    }
+    println!("count after select: {}", ctx.count());
+
+    println!("sum age: {}", ctx.sum(String::from("age")).unwrap_or(0.0));
+
+    println!("max age: {}", ctx.max(String::from("age")).unwrap_or(0.0));
+
+    println!("min age: {}", ctx.min(String::from("age")).unwrap_or(0.0));
+
+
+    // let records = t.get_possible(&commands.select);
+    // let count = t.count(&commands.select);
+    // println!("Got {} records. Time elapsed: {} ms", records.len(), start_fetch.elapsed().as_millis());
 }

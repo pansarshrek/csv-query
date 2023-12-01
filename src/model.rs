@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 pub type Column = String;
@@ -5,18 +6,83 @@ pub type Columns = Vec<Column>;
 pub type Value = String;
 pub type Record = Vec<Value>;
 
+// pub enum ColType {
+//     String(String),
+//     Float(f64),
+//     Int(i32),
+// }
+
 #[derive(Eq, Hash, PartialEq, Debug)]
 pub struct Selection {
     pub column: Column,
-    pub value: Value,
+    pub value: Vec<Value>,
 }
+
+pub struct DataContext<'a> {
+    table: &'a Table,
+    selection: Vec<Selection>,
+}
+
+impl DataContext<'_> {
+    pub fn select(&mut self, selection: Selection) -> &DataContext {
+        self.selection.push(selection);
+        self
+    }
+
+    pub fn count(&self) -> usize {
+        let vals = self.table.get_possible(&self.selection);
+        vals.iter().count()
+    }
+
+    pub fn sum(&self, col: Column) -> Option<f64> {
+        self.table.get_col_index(&col).map(|i| {
+            self.table
+                .get_possible(&self.selection)
+                .iter()
+                .map(|x| &x[i])
+                .map(|s| s.parse::<f64>().unwrap_or(0.0))
+                .sum()
+        })
+    }
+
+    pub fn max(&self, col: Column) -> Option<f64> {
+        self.table.get_col_index(&col).map(|i| {
+            self.table
+                .get_possible(&self.selection)
+                .iter()
+                .map(|x| &x[i])
+                .map(|s| s.parse::<f64>().unwrap_or(0.0))
+                .max_by(|x,y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Less))
+                .unwrap_or(0.0)
+        })
+    }
+
+    pub fn min(&self, col: Column) -> Option<f64> {
+        self.table.get_col_index(&col).map(|i| {
+            self.table
+                .get_possible(&self.selection)
+                .iter()
+                .map(|x| &x[i])
+                .map(|s| s.parse::<f64>().unwrap_or(0.0))
+                .min_by(|x,y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Less))
+                .unwrap_or(0.0)
+        })
+    }
+}
+
+#[derive(Eq, Hash, PartialEq, Debug)]
+struct IndexValue {
+    column: Column,
+    value: Value,
+}
+
 
 pub struct Table {
     pub name: String,
     pub columns: Columns,
     pub records: Vec<Record>,
 
-    pub index: HashMap<Selection, Vec<usize>>,
+    index: HashMap<IndexValue, Vec<usize>>,
 }
 
 impl Table {
@@ -29,15 +95,34 @@ impl Table {
         }
     }
 
-    pub fn index_value(&mut self, v: Selection) {
+    pub fn new_context(&self) -> DataContext {
+        DataContext {
+            table: self,
+            selection: vec![],
+        }
+    }
+
+    fn index_value(&mut self, v: IndexValue) {
         let v = self.index.entry(v).or_insert(Vec::new());
         v.push(self.records.len());
+    }
+
+    pub fn get_col_index(&self, col: &Column) -> Option<usize> {
+        for (i, column) in self.columns.iter().enumerate() {
+            if column == col {
+                return Some(i);
+            }
+        }
+        return None;
     }
 
     pub fn insert(&mut self, record: Record) {
         for (i, field) in record.iter().enumerate() {
             let column_name = self.columns.get(i).expect("column should exist");
-            self.index_value(Selection { column: String::from(column_name), value: String::from(field) })
+            self.index_value(IndexValue {
+                column: String::from(column_name),
+                value: String::from(field),
+            })
         }
 
         self.records.push(record);
@@ -48,29 +133,38 @@ impl Table {
         return persons.collect();
     }
 
-
-
-    pub fn get_possible_rows(&self, selection: &Vec<Selection>) -> Vec<&Record> {
-        fn intersect(acc: Vec<usize>, r: Vec<usize>) -> Vec<usize> {
-            acc.iter().filter(|e| r.contains(e)).cloned().collect()
+    pub fn get_possible(&self, selection: &Vec<Selection>) -> Vec<&Record> {
+        if selection.len() == 0 {
+            return self.records.iter().collect();
         }
 
+        let mut bts = BTreeSet::new();
         let empty = Vec::new();
-        let iter = selection.iter();
-
-        let recs = iter.map(|x| self.index.get(x).unwrap_or(&empty).clone());
-
-        let reduced = recs.reduce(intersect);
-
-        match reduced {
-            None => return self.records.iter().collect(),
-            Some(r) => return self.get_rows_by_id(&r),
+        for s in selection {
+            for v in &s.value {
+                let rows = self
+                    .index
+                    .get(&IndexValue {
+                        column: String::from(&s.column),
+                        value: String::from(v),
+                    })
+                    .unwrap_or(&empty)
+                    .clone();
+                for row in rows {
+                    bts.insert(row);
+                }
+            }
         }
+
+        let mut ids: Vec<usize> = vec![];
+        for id in bts {
+            ids.push(id);
+        }
+
+        return self.get_rows_by_id(&ids);
     }
 }
 
-pub struct Model {
-    pub tables: Vec<Table>,
-}
-
-
+// pub struct Model {
+//     pub tables: Vec<Table>,
+// }
