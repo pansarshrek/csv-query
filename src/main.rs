@@ -1,4 +1,5 @@
 mod model;
+mod ast;
 
 use std::env;
 use std::fs;
@@ -102,7 +103,7 @@ impl Commands {
 
 
 
-fn main() {
+fn main() -> io::Result<()> {
     let commands = Commands::from_args();
     println!("commands: {:#?}", &commands);
     let f = match fs::File::open(&commands.infile) {
@@ -149,6 +150,63 @@ fn main() {
     println!("Start timer...");
 
     let mut ctx = t.new_context();
+    ctx.observe(|ctx| {
+        println!("sum age: {}", ctx.sum(String::from("age")).unwrap_or(model::DataType::Int(0)));
+    });
+
+    ctx.observe(|ctx| {
+        println!("max age: {}", ctx.max(String::from("age")).unwrap_or(model::DataType::Int(0)));
+    });
+
+    ctx.observe(|ctx| {
+        println!("min age: {}", ctx.min(String::from("age")).unwrap_or(model::DataType::Int(0)));
+    });
+
+    loop {
+        println!("Provide a command");
+        let mut buffer = String::new();
+        io::stdin().read_line(&mut buffer)?;
+
+        let tokens: Vec<&str> = buffer.split(" ").collect();
+
+        if tokens.len() < 2 {
+            println!("Provide a valid command");
+            continue;
+        }
+
+        let sel: model::Selection;
+
+        match tokens[0] {
+            "select" | "deselect" => {
+                if !tokens[1].contains("=") {
+                    println!("Invalid select argument");
+                    continue;
+                }
+            
+                let parts: Vec<&str> = tokens[1].split("=").collect();
+                sel = model::Selection {
+                    column: String::from(parts[0]),
+                    value: parts[1].split(",").map(|s| s.trim_end()).map(String::from).collect(),
+                };
+            },
+            _ => {
+                println!("Unrecognized command");
+                continue;
+            },
+        }
+
+        println!("{}: {:#?}", tokens[0], sel);
+
+        if tokens[0] == "select" {
+            ctx.select(&sel);
+        } else {
+            ctx.deselect(&sel);
+        }
+
+
+    }
+    
+
     println!("count before select: {}", ctx.count());
     for s in &commands.select {
         ctx.select(s);
@@ -159,15 +217,8 @@ fn main() {
         ctx.deselect(s);
     }
 
-    println!("sum age: {}", ctx.sum(String::from("age")).unwrap_or(model::DataType::Int(0)));
 
-    println!("max age: {}", ctx.max(String::from("age")).unwrap_or(model::DataType::Int(0)));
 
-    println!("min age: {}", ctx.min(String::from("age")).unwrap_or(model::DataType::Int(0)));
-
-    println!("sum duration: {}", ctx.sum(String::from("duration")).unwrap_or(model::DataType::Int(0)));
-    println!("max duration: {}", ctx.max(String::from("duration")).unwrap_or(model::DataType::Int(0)));
-    println!("min duration: {}", ctx.min(String::from("duration")).unwrap_or(model::DataType::Int(0)));
 
     println!("Querying finished. Time elapsed: {} ms", start_fetch.elapsed().as_millis());
 

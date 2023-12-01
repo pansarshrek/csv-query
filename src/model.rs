@@ -154,6 +154,7 @@ pub struct Selection {
     pub value: Vec<Value>,
 }
 
+pub type DataContextCallback = fn(&DataContext) -> (); 
 
 
 pub struct DataContext<'a> {
@@ -161,6 +162,7 @@ pub struct DataContext<'a> {
     selection: Vec<Selection>,
 
     selected_records: Vec<&'a Record>,
+    callbacks: Vec<DataContextCallback>,
 }
 
 impl DataContext<'_> {
@@ -181,9 +183,20 @@ impl DataContext<'_> {
         self
     }
 
+    pub fn observe(&mut self, cb: DataContextCallback) {
+        self.callbacks.push(cb);
+    }
+
+    fn notify_observers(&self) {
+        for cb in &self.callbacks {
+            cb(self);
+        }
+    }
+
     fn update_selected_records(&mut self) {
         let possible_records = self.table.get_possible(&self.selection);
         self.selected_records = possible_records;
+        self.notify_observers();
     }
 
     pub fn count(&self) -> usize {
@@ -202,7 +215,7 @@ impl DataContext<'_> {
                     _ => false,
                 })
                 .cloned()
-                .reduce(DataType::sum).unwrap()
+                .reduce(DataType::sum).unwrap_or(DataType::Int(0))
         })
     }
 
@@ -268,6 +281,7 @@ impl Table {
             table: self,
             selection: vec![],
             selected_records: vec![],
+            callbacks: vec![],
         };
         ctx.update_selected_records();
         ctx
