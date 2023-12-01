@@ -11,7 +11,7 @@ use super::*;
     
         let added = Expression::Add(b1, b2);
     
-        assert_eq!(added.to_string(), "5 + age");
+        assert_eq!(added.to_string(), "add(5, age)");
     }
     
     #[test]
@@ -21,7 +21,7 @@ use super::*;
         let one = Expression::IntConst(1);
         let add_one = Expression::Add(Box::new(sum_age), Box::new(one));
     
-        assert_eq!(add_one.to_string(), "sum(age) + 1");
+        assert_eq!(add_one.to_string(), "add(sum(age), 1)");
     }
     
     #[test]
@@ -35,7 +35,7 @@ use super::*;
     
         let sum = Expression::Sum(Box::new(added));
     
-        assert_eq!(sum.to_string(), "sum(5 + age)");
+        assert_eq!(sum.to_string(), "sum(add(5, age))");
     }
 
     #[test]
@@ -44,11 +44,14 @@ use super::*;
 
         assert_eq!(tokenizer.next(), Some(String::from("5")));
 
-        let mut tokenizer = ExpressionTokenizer::new(String::from("1+2"));
+        let mut tokenizer = ExpressionTokenizer::new(String::from("add(1,2)"));
 
+        assert_eq!(tokenizer.next(), Some(String::from("add")));
+        assert_eq!(tokenizer.next(), Some(String::from("(")));
         assert_eq!(tokenizer.next(), Some(String::from("1")));
-        assert_eq!(tokenizer.next(), Some(String::from("+")));
+        assert_eq!(tokenizer.next(), Some(String::from(",")));
         assert_eq!(tokenizer.next(), Some(String::from("2")));
+        assert_eq!(tokenizer.next(), Some(String::from(")")));
 
         let mut tokenizer = ExpressionTokenizer::new(String::from("1 + 2"));
 
@@ -59,9 +62,9 @@ use super::*;
 
     #[test]
     fn tokenize_2() {
-        let mut tokenizer = ExpressionTokenizer::new(String::from("sum(age + 1) + 1"));
+        let mut tokenizer = ExpressionTokenizer::new(String::from("add(sum(add(age, 1), 1)"));
 
-        let expected = vec!["sum", "(", "age", "+", "1", ")", "+", "1"];
+        let expected = vec!["add", "(", "sum", "(", "add", "(", "age", ",", "1", ")", ",", "1", ")"];
 
         for expected_token in expected {
             assert_eq!(tokenizer.next(), Some(String::from(expected_token)));
@@ -70,6 +73,32 @@ use super::*;
         
         assert_eq!(tokenizer.next(), None);
     }
+
+    #[test]
+    fn parse_expression_1() {
+        let expr_string = "1";
+        let expr = Expression::from_string(expr_string);
+
+        assert_eq!(expr, Ok(Expression::IntConst(1)));
+    }
+
+    #[test]
+    fn parse_expression_2() {
+        let expr_string = "add(1,1)";
+        let expr = Expression::from_string(expr_string);
+
+        let expect_expr = Expression::Add(Box::new(Expression::IntConst(1)), Box::new(Expression::IntConst(1)));
+        assert_eq!(expr, Ok(expect_expr));
+    }
+
+    #[test]
+    fn parse_expression_3() {
+        let expr_string = "add(var,1)";
+        let expr = Expression::from_string(expr_string);
+
+        let expect_expr = Expression::Add(Box::new(Expression::Variable(String::from("var"))), Box::new(Expression::IntConst(1)));
+        assert_eq!(expr, Ok(expect_expr));
+    }
 }
 
 
@@ -77,7 +106,7 @@ use super::*;
 impl std::fmt::Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Expression::Add(a, b) => write!(f, "{} + {}", a.as_ref().to_string(), b.as_ref().to_string()),
+            Expression::Add(a, b) => write!(f, "add({}, {})", a.as_ref().to_string(), b.as_ref().to_string()),
             Expression::IntConst(i) => write!(f, "{}", i.to_string()),
             Expression::Variable(s) => write!(f, "{}", s),
             Expression::Sum(e) => write!(f, "sum({})", e.as_ref().to_string()),
@@ -97,7 +126,7 @@ impl ExpressionTokenizer {
         ExpressionTokenizer { s: s, index: 0 }
     }
     fn is_token_separator(c: char) -> bool {
-        let tokens = ['(', ')', '+'];
+        let tokens = ['(', ')', '+', ','];
         tokens.contains(&c)
     }
 }
@@ -132,47 +161,104 @@ impl std::iter::Iterator for ExpressionTokenizer {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct ParseExpressionError {}
+pub struct ParseExpressionError<'a> {
+    pub message: &'a str,
+}
 
 impl Expression {
-    // pub fn from_string(s: &str) -> Result<Expression, ParseExpressionError> {
-    //     let tkn = ExpressionTokenizer::new(String::from(s));
-    //     let token_it = tkn.into_iter();
-    //     {
-    //         match token {
-    //             ""
-    //         }
-    //     }
+    pub fn from_string<'a>(s: &str) -> Result<Expression, ParseExpressionError<'a>> {
+        let mut tkn = ExpressionTokenizer::new(String::from(s));
 
+        let parsed_expr = Expression::from_iter(&mut tkn)?;
 
-    //     Ok(Expression::IntConst(0))
-    // }
+        let tok = tkn.next();
+        if tok.as_deref() != None {
+            return Err(ParseExpressionError { message: "Expected end of input" });
+        }
 
-    // fn from_iter(iter: &mut ExpressionTokenizer) -> Result<Expression, ParseExpressionError> {
-    //     let tok = iter.next();
-    //     let as_deref = tok.as_deref();
-    //     match as_deref {
-    //         Some("sum") => {
-    //             let tok = iter.next();
-    //             if tok.as_deref() != Some("(") {
-    //                 return Err(ParseExpressionError {  });
-    //             }
-    //             let expr = Expression::from_iter(iter)?;
+        Ok(parsed_expr)
+    }
 
-    //             Ok(Expression::Sum(Box::new(expr)))
-    //         },
-    //         Some("(") => {
-    //             Expression::from_iter(iter)
-    //         },
-    //         Some(")") => {
+    fn from_iter<'a>(iter: &mut ExpressionTokenizer) -> Result<Expression, ParseExpressionError<'a>> {
+        let tok = iter.next();
+        let as_deref = tok.as_deref();
+        let parsed_expression = match as_deref {
+            Some("sum") => {
+                let tok = iter.next();
+                if tok.as_deref() != Some("(") {
+                    return Err(ParseExpressionError { message: "Expected '('" });
+                }
+                let expr = Expression::from_iter(iter)?;
+                let tok = iter.next();
+                if tok.as_deref() != Some(")") {
+                    return Err(ParseExpressionError { message: "Expected ')'" });
+                }
+                
+                Expression::Sum(Box::new(expr))
+            },
+            Some("add") => {
+                let tok = iter.next();
+                if tok.as_deref() != Some("(") {
+                    return Err(ParseExpressionError { message: "Expected '('" });
+                }
+                let expr1 = Expression::from_iter(iter)?;
+                let tok = iter.next();
+                if tok.as_deref() != Some(",") {
+                    return Err(ParseExpressionError { message: "Expected ','" });
+                }
+                let expr2 = Expression::from_iter(iter)?;
+                let tok = iter.next();
+                if tok.as_deref() != Some(")") {
+                    return Err(ParseExpressionError { message: "Expected ')'" });
+                }
+                
+                Expression::Add(Box::new(expr1), Box::new(expr2))
+            },
+            Some("count") => {
+                let tok = iter.next();
+                if tok.as_deref() != Some("(") {
+                    return Err(ParseExpressionError { message: "Expected '('" });
+                }
 
-    //         }
-    //         Some(s) if s.parse::<i64>() == Ok => {
-    //             let num: i64 = s.parse();
-    //             Expression::IntConst(())
-    //         }
-    //     }
-    // }
+                let tok = iter.next();
+                if tok.as_deref() != Some(")") {
+                    return Err(ParseExpressionError { message: "Expected ')'" });
+                }
+
+                Expression::Count
+            },
+
+            Some(s) => {
+                if s.len() == 0 {
+                    return Err(ParseExpressionError { message: "Expected non-empty string" });
+                }
+
+                let num: Result<i64, _> = s.parse();
+
+                match num {
+                    Ok(n) => {
+                        return Ok(Expression::IntConst(n));
+                    }
+                    Err(_) => ()
+                }
+
+                if s.len() == 1 {
+                    let c = s.chars().next().unwrap();
+                    if !c.is_alphanumeric() {
+                        return Err(ParseExpressionError { message: "Expected alphanumeric char" });
+                    }
+                }
+
+                Expression::Variable(String::from(s))
+            },
+            None => {
+                return Err(ParseExpressionError { message: "Unexpected end of input" });
+            }
+        };
+
+        return Ok(parsed_expression);
+
+    }
 }
 
 pub struct Value {
@@ -186,6 +272,7 @@ pub struct BinOp {
 
 pub type ColReference = String;
 
+#[derive(Eq, PartialEq, Debug)]
 pub enum Expression {
     // StrConst(String),
     IntConst(i64),
