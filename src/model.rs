@@ -5,7 +5,7 @@ pub type Columns = Vec<Column>;
 pub type Value = String;
 pub type Record = Vec<Value>;
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct Selection {
     pub column: Column,
     pub value: Value,

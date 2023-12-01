@@ -4,12 +4,10 @@ mod catalog;
 
 use catalog::{Person, Catalog, Column, Value};
 
-use core::num;
-use std::error::Error;
+use std::env;
 use std::fs;
 use std::io;
 use std::io::BufRead;
-use std::io::Read;
 
 fn example1() {
     let mut catalog = Catalog::new();
@@ -61,14 +59,83 @@ fn parse_csv_line(line: &str, delim: &str, max_cols: Option<usize>) -> Vec<Strin
     }
 }
 
+#[derive(Debug)]
+struct Commands {
+    infile: String,
+    select: Vec<model::Selection>,
+}
+
+impl Commands {
+
+    fn from_args() -> Commands {
+        let mut commands = Commands::new();
+        let args: Vec<String> = env::args().skip(1).collect();
+        match commands.parse(&args) {
+            Err(_) => panic!("failed to parse command line args..."),
+            _ => ()
+        }
+        commands
+    }
+
+    fn new() -> Commands {
+        Commands {
+            infile: String::new(),
+            select: Vec::new(),
+        }
+    }
+
+    fn parse(&mut self, args: &Vec<String>) -> Result<(), &str> {
+        let mut it = args.iter();
+        
+        loop {
+            let n = it.next();
+            match n {
+                None => break,
+                Some(s) if s == "--in" => {
+                    self.infile = match it.next() {
+                        None => break,
+                        Some(s) => String::from(s)
+                    };
+                },
+                Some(s) if s == "--select" => {
+                    let stmt = match it.next() {
+                        None => break,
+                        Some(s) => String::from(s),
+                    };
+                    if stmt.contains("=") {
+                        let parts: Vec<&str> = stmt.split("=").collect();
+                        let sel = model::Selection{column: String::from(parts[0]), value: String::from(parts[1]) };
+                        self.select.push(sel);
+                    }
+                }
+                Some(s) => {
+                    println!("Unrecognized argument {s}");
+                }
+            }
+        }
+
+        if self.infile == "" {
+            return Err("ERROR: no in file specified")
+        }
+        return Ok(());
+    }
+}
+
 fn main() {
-    let f = fs::File::open("data.csv").expect("data.csv should exist and be readable");
+    let commands = Commands::from_args();
+    println!("commands: {:#?}", &commands);
+    let f = match fs::File::open(&commands.infile) {
+        Ok(f) => f,
+        Err(e) => {
+            panic!("failed to open file {}: {}", &commands.infile, e);
+        }
+    };
     let mut r = io::BufReader::new(f);
     let delim = ",";
     
     let columns = read_csv_line(&mut r, delim).expect("to have columns");
     let num_columns = columns.len();
-    let mut t = model::Table::new("d", columns);
+    let mut t = model::Table::new(&commands.infile, columns);
     
     let mut buf = String::new();
     loop {
@@ -85,9 +152,6 @@ fn main() {
         buf.clear();
     }
 
-    let select = vec![
-        model::Selection{ column: String::from("country"), value: String::from("swe") },
-        model::Selection{ column: String::from("name"), value: String::from("nicklas")}];
-    let records = t.get_possible_rows(&select);
+    let records = t.get_possible_rows(&commands.select);
     println!("Got records: {:#?}", records);
 }
