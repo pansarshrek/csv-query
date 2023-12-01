@@ -3,6 +3,18 @@ mod test {
 use super::*;
 
     #[test]
+    fn decimal_num_1_to_string() {
+        let e1 = Expression::DecConst(123, 2);
+        assert_eq!(e1.to_string(), "1.23");
+        
+        let e2 = Expression::DecConst(99, 0);
+        assert_eq!(e2.to_string(), "99");
+
+        let e3 = Expression::DecConst(70000, 1);
+        assert_eq!(e3.to_string(), "7000.0");
+    }
+
+    #[test]
     fn add_1_to_string() {
         let e1 = Expression::IntConst(5);
         let e2 = Expression::Variable(String::from("age"));
@@ -112,6 +124,19 @@ impl std::fmt::Display for Expression {
             Expression::Sum(e) => write!(f, "sum({})", e.as_ref().to_string()),
             Expression::Count => write!(f, "count()"),
             Expression::Values(s) => write!(f, "values({})", s),
+            Expression::DecConst(v, p) => {
+                if *p == 0 {
+                    write!(f, "{}", v)
+                } else {
+                    let dec_pos = *p as usize;
+                    let mut v_str = v.to_string();
+                    while v_str.len() <= dec_pos {
+                        v_str.insert(0, '0');
+                    }
+                    v_str.insert(v_str.len() - dec_pos, '.');
+                    v_str.fmt(f)
+                }
+            }
         }
     }
 }
@@ -123,7 +148,7 @@ struct ExpressionTokenizer {
 
 impl ExpressionTokenizer {
     fn new(s: String) -> ExpressionTokenizer {
-        ExpressionTokenizer { s: s, index: 0 }
+        ExpressionTokenizer { s, index: 0 }
     }
     fn is_token_separator(c: char) -> bool {
         let tokens = ['(', ')', '+', ','];
@@ -227,19 +252,48 @@ impl Expression {
 
                 Expression::Count
             },
+            Some("values") => {
+                let tok = iter.next();
+                if tok.as_deref() != Some("(") {
+                    return Err(ParseExpressionError { message: "Expected '('" });
+                }
 
+                let e = Expression::from_iter(iter)?;
+
+                let tok = iter.next();
+                if tok.as_deref() != Some(")") {
+                    return Err(ParseExpressionError { message: "Expected ')'" });
+                }
+
+                match e {
+                    Expression::Variable(var) => Expression::Values(var),
+                    _ => return Err(ParseExpressionError { message: "Expected variable expression" }),
+                }
+            },
             Some(s) => {
                 if s.len() == 0 {
                     return Err(ParseExpressionError { message: "Expected non-empty string" });
                 }
 
-                let num: Result<i64, _> = s.parse();
-
-                match num {
-                    Ok(n) => {
-                        return Ok(Expression::IntConst(n));
-                    }
-                    Err(_) => ()
+                let int_result: Result<i64, _> = s.parse();
+                match int_result {
+                    Ok(i) => return Ok(Expression::IntConst(i)),
+                    _ => (),
+                }
+        
+                let float_result: Result<f64, _> = s.parse();
+                match float_result {
+                    Ok(_f) => {
+                        let parts: Vec<&str> = s.split(".").collect();
+                        let decimal_points = parts[1].len();
+                        let value = String::from(parts[0]) + parts[1];
+                        let num_result: Result<i64, _> = value.parse();
+                        match num_result {
+                            Ok(num) => return Ok(Expression::DecConst(num, decimal_points as u8)),
+                            _ => (),
+                        }
+                    },
+                    _ => (),
                 }
 
                 if s.len() == 1 {
@@ -261,22 +315,13 @@ impl Expression {
     }
 }
 
-pub struct Value {
-    num: i64
-}
-
-pub struct BinOp {
-    e1: Box<Expression>,
-    e2: Box<Expression>,
-}
-
 pub type ColReference = String;
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum Expression {
     // StrConst(String),
     IntConst(i64),
-    // DecConst(i64, u8),
+    DecConst(i64, u8),
     Variable(ColReference),
     Add(Box<Expression>, Box<Expression>),
     // Minus(BinOp<'a>),
@@ -285,21 +330,48 @@ pub enum Expression {
     Values(ColReference),
 }
 
-fn build() {
+// fn build() {
 
-}
+// }
 
-pub struct SelectParam {
-    pub field: String,
-    pub value: Vec<String>,
-}
+// pub struct SelectParam {
+//     pub field: String,
+//     pub value: Vec<String>,
+// }
 
-pub enum Command {
-    Select(SelectParam),
-    Deselect(SelectParam),
-    Watch(Expression),
-    Unwatch(String),
-}
+// pub enum Command {
+//     Select(SelectParam),
+//     Deselect(SelectParam),
+//     Watch(Expression),
+//     Unwatch(String),
+// }
+
+// pub enum Query {
+//     Tabular(TabularQuery),
+//     Aggregate(AggregateQuery),
+//     Possible(PossibleQuery)
+// }
+
+// pub enum Func {
+//     Sum,
+//     Count,
+//     Max,
+//     Min,
+// }
+
+// pub struct AggregateQuery {
+//     column: String,
+//     by: Vec<String>,
+//     func: Func,
+// }
+
+// pub struct TabularQuery {
+//     columns: Vec<String>,
+// }
+
+// pub struct PossibleQuery {
+//     column: String
+// }
 
 // select field=value
 
