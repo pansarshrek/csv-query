@@ -19,7 +19,9 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": [
+                "--in", "data.csv", "--select", "country=us", "--select", "name=nicklas"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {

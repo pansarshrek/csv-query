@@ -47,7 +47,7 @@ impl Commands {
         let mut commands = Commands::new();
         let args: Vec<String> = env::args().skip(1).collect();
         match commands.parse(&args) {
-            Err(_) => panic!("failed to parse command line args..."),
+            Err(err) => panic!("failed to parse command line args: {}", err),
             _ => (),
         }
         commands
@@ -100,6 +100,8 @@ impl Commands {
     }
 }
 
+
+
 fn main() {
     let commands = Commands::from_args();
     println!("commands: {:#?}", &commands);
@@ -132,10 +134,7 @@ fn main() {
         let fields = parse_csv_line(&buf, delim, Some(num_columns));
         let dts: Vec<model::DataType> = fields
             .iter()
-            .map(|f| match f.parse::<i32>() {
-                Ok(num) => model::DataType::Int(num),
-                Err(_) => model::DataType::String(String::from(f)),
-            })
+            .map(model::DataType::from_string)
             .collect();
         t.insert(dts);
         buf.clear();
@@ -151,16 +150,24 @@ fn main() {
 
     let mut ctx = t.new_context();
     println!("count before select: {}", ctx.count());
-    for s in commands.select {
+    for s in &commands.select {
         ctx.select(s);
     }
     println!("count after select: {}", ctx.count());
 
-    println!("sum age: {}", ctx.sum(String::from("age")).unwrap_or(0));
+    for s in &commands.select {
+        ctx.deselect(s);
+    }
 
-    println!("max age: {}", ctx.max(String::from("age")).unwrap_or(0));
+    println!("sum age: {}", ctx.sum(String::from("age")).unwrap_or(model::DataType::Int(0)));
 
-    println!("min age: {}", ctx.min(String::from("age")).unwrap_or(0));
+    println!("max age: {}", ctx.max(String::from("age")).unwrap_or(model::DataType::Int(0)));
+
+    println!("min age: {}", ctx.min(String::from("age")).unwrap_or(model::DataType::Int(0)));
+
+    println!("sum duration: {}", ctx.sum(String::from("duration")).unwrap_or(model::DataType::Int(0)));
+    println!("max duration: {}", ctx.max(String::from("duration")).unwrap_or(model::DataType::Int(0)));
+    println!("min duration: {}", ctx.min(String::from("duration")).unwrap_or(model::DataType::Int(0)));
 
     println!("Querying finished. Time elapsed: {} ms", start_fetch.elapsed().as_millis());
 

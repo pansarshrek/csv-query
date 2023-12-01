@@ -3,8 +3,13 @@ nicklas,swe,35
 siyuan,cn,34
 x,cn,50
 y,cn,55
-p,us,12
+p,us,10
 aiden,swe,1
 nicklas,swe,77
-bla,us,17
+bla,us,20
 broken,us,seventyone
+decimal,us,17.7
+decimal,us,3.3
+decimal,us,0.005
+decimal,us,1.00000000009
+decimal,us,0.00000000001
