@@ -2,13 +2,14 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::num::ParseIntError;
+use std::vec;
 
 pub type Column = String;
 pub type Columns = Vec<Column>;
 pub type Value = String;
 pub type Record = Vec<DataType>;
 
-#[derive(Eq, Hash, PartialEq, Debug, Clone)]
+#[derive(Eq, Hash, PartialEq, Debug, Clone, Ord, PartialOrd)]
 pub enum DataType {
     String(String),
     Decimal(i64, u8),
@@ -16,7 +17,7 @@ pub enum DataType {
 }
 
 impl DataType {
-    pub fn from_string(s: &String) -> DataType {
+    pub fn from_string(s: &str) -> DataType {
         let int_result: Result<i64, _> = s.parse();
         match int_result {
             Ok(i) => return DataType::Int(i),
@@ -258,6 +259,8 @@ struct IndexValue {
     value: Value,
 }
 
+/// represents a data table loaded from
+/// an external source, like a CSV file
 pub struct Table {
     pub name: String,
     pub columns: Columns,
@@ -292,7 +295,7 @@ impl Table {
         v.push(self.records.len());
     }
 
-    pub fn get_col_index(&self, col: &Column) -> Option<usize> {
+    pub fn get_col_index(&self, col: &str) -> Option<usize> {
         for (i, column) in self.columns.iter().enumerate() {
             if column == col {
                 return Some(i);
@@ -307,14 +310,6 @@ impl Table {
             self.index_value(IndexValue {
                 column: String::from(column_name),
                 value: field.to_string(),
-                // match field {
-                //     DataType::String(d) => String::from(d),
-                //     DataType::Int(i) => i.to_string(),
-                //     DataType::Decimal(f, p) => {
-                //         self.floats.insert(String::from(f), f.parse().unwrap_or(0.0));
-                //         String::from(f)
-                //     }
-                // },
             })
         }
 
@@ -358,6 +353,191 @@ impl Table {
     }
 }
 
-// pub struct Model {
-//     pub tables: Vec<Table>,
-// }
+pub struct Model {
+    tables: Vec<Table>,
+    columns: HashMap<Column, Vec<usize>>,
+}
+
+impl Model {
+    /// creates a new model
+    pub fn new() -> Model {
+        Model {
+            tables: vec![],
+            columns: HashMap::new(),
+        }
+    }
+
+    /// adds a table to the model
+    pub fn add_table(&mut self, table: Table) {
+        for col in &table.columns {
+            let table_indexes = self.columns.entry(String::from(col)).or_insert(Vec::new());
+            table_indexes.push(self.tables.len());
+        }
+        self.tables.push(table);
+    }
+
+    /// get a table by name from the model
+    pub fn get_table(&self, table_name: &str) -> Option<&Table> {
+        let table = self.tables.iter().find(|t| t.name == table_name);
+        table
+    }
+
+    /// get the unique values for a given column
+    pub fn get_all_values(&self, col: &str) -> Vec<&DataType> {
+        let tables_and_col_indices: Vec<(&Table, usize)> = self.tables.iter()
+            .map(|t| (t, t.get_col_index(col)))
+            .filter(|(t, index)| *index != None)
+            .map(|(t, index)| (t, index.unwrap()))
+            .collect();
+
+
+        let mut bset: BTreeSet<&DataType> = std::collections::btree_set::BTreeSet::new();
+
+        for (t, index) in tables_and_col_indices {
+            for r in &t.records {
+                bset.insert(&r[index]);
+            }
+        }
+
+        let vec: Vec<&DataType> = bset.into_iter().collect();
+        
+        vec
+    }
+
+    /// starts a new data context for the model
+    pub fn new_data_context(&self) -> ModelContext {
+        ModelContext::new()
+    }
+
+    /// get values and their associative state for a given column
+    /// depending on current selections
+    pub fn get_values(&self, col: &str) -> Vec<()> {
+        vec![]
+    }
+
+    // pub fn new_context(&self) -> DataContext {
+    //     let mut ctx = DataContext {
+    //         table: self,
+    //         selection: vec![],
+    //         selected_records: vec![],
+    //         callbacks: vec![],
+    //     };
+    //     ctx.update_selected_records();
+    //     ctx
+    // }
+}
+
+pub struct ModelContext {
+    selection: Vec<Selection>,
+}
+
+impl ModelContext {
+    pub fn new() -> ModelContext {
+        ModelContext {
+            selection: vec![],
+        }
+    }
+    pub fn select(&mut self, select: &Selection) -> &ModelContext {
+        self.selection.push(select.clone());
+        self
+    }
+
+    pub fn deselect(&mut self, select: &Selection) -> &ModelContext {
+        self.selection
+            .iter()
+            .position(|p| p == select)
+            .map(|i| self.selection.remove(i));
+
+        self
+    }
+}
+
+#[cfg(test)]
+mod test {
+use super::*;
+
+    fn copy_strings(strs: &Vec<&str>) -> Vec<String> {
+        strs.into_iter().map(|&s| String::from(s)).collect()
+    }
+
+    fn data_types(strs: &Vec<&str>) -> Vec<DataType> {
+        strs.into_iter().map(|s| DataType::from_string(s)).collect()
+    }
+
+    fn table(name: &str, data: Vec<Vec<&str>>) -> Table {
+        let table_header = data.get(0).expect("table header must exist");
+        let mut t = Table::new(name, copy_strings(table_header));
+        for row in data.iter().skip(1) {
+            t.insert(data_types(row));
+        }
+        t
+    }
+
+    fn model(tables: Vec<Table>) -> Model {
+        let mut m = Model::new();
+        for t in tables {
+            m.add_table(t);
+        }
+        m
+    }
+
+    #[test]
+    fn model_get_values_1() {
+        let data = vec![
+            vec!["name"],
+            vec!["ni"],
+            vec!["ai"],
+            vec!["ni"],
+        ];
+
+        let t1 = table("t1", data);
+
+        let m = model(vec![t1]);
+
+        let values = m.get_all_values("name");
+
+        let data_t: Vec<DataType> = data_types(&vec!["ai", "ni"]);
+        let as_ref: Vec<&DataType> = data_t.iter().collect();
+
+        assert_eq!(values, as_ref);
+    }
+
+    #[test]
+    fn model_get_values_2() {
+        // Arrange
+        let data1 = vec![
+            vec!["name"],
+            vec!["ni"],
+            vec!["ai"],
+            vec!["ni"],
+        ];
+        let t1 = table("t1", data1);
+
+        let data2 = vec![
+            vec!["name", "item"],
+            vec!["ni", "phone"],
+            vec!["ni", "keys"],
+            vec!["ai", "toy"],
+            vec!["qe", "sandwich"],
+        ];
+        let t2 = table("t2", data2);
+
+        let m = model(vec![t1, t2]);
+
+        // Act
+        let get_names = m.get_all_values("name");
+        let get_items = m.get_all_values("item");
+
+        let name_values: Vec<DataType> = data_types(&vec!["ai", "ni", "qe"]);
+        let name_val_refs: Vec<&DataType> = name_values.iter().collect();
+
+        // Assert
+        assert_eq!(get_names, name_val_refs);
+
+        let item_values: Vec<DataType> = data_types(&vec!["keys", "phone", "sandwich", "toy"]);
+        let item_refs: Vec<&DataType> = item_values.iter().collect();
+
+        assert_eq!(get_items, item_refs);
+
+    }
+}

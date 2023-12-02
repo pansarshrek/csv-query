@@ -135,7 +135,7 @@ fn main() -> io::Result<()> {
         let fields = parse_csv_line(&buf, delim, Some(num_columns));
         let dts: Vec<model::DataType> = fields
             .iter()
-            .map(model::DataType::from_string)
+            .map(|f| model::DataType::from_string(f.as_str()))
             .collect();
         t.insert(dts);
         buf.clear();
