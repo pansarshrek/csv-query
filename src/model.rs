@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::num::ParseIntError;
 use std::vec;
 
@@ -33,9 +34,9 @@ impl DataType {
                 let num_result: Result<i64, ParseIntError> = value.parse();
                 return match num_result {
                     Ok(num) => DataType::Decimal(num, decimal_points as u8),
-                    _ => DataType::String(String::from(s))
-                }
-            },
+                    _ => DataType::String(String::from(s)),
+                };
+            }
             _ => DataType::String(String::from(s)),
         }
     }
@@ -50,13 +51,13 @@ impl DataType {
             (DataType::Int(i1), DataType::Int(i2)) => i1.cmp(i2),
             (DataType::Decimal(num1, p1), DataType::Decimal(num2, p2)) => {
                 Self::precision_mul(*num1, *p2).cmp(&Self::precision_mul(*num2, *p1))
-            },
+            }
             (DataType::Decimal(num1, p), DataType::Int(num2)) => {
                 num1.cmp(&Self::precision_mul(*num2, *p))
-            },
+            }
             (DataType::Int(num1), DataType::Decimal(num2, p)) => {
                 Self::precision_mul(*num1, *p).cmp(num2)
-            },
+            }
         };
     }
 
@@ -64,7 +65,7 @@ impl DataType {
         if p1 == 0 && p2 == 0 {
             return DataType::Int(d1 + d2);
         }
-    
+
         if p1 == p2 {
             return DataType::Decimal(d1 + d2, p1);
         } else if p1 > p2 {
@@ -75,7 +76,7 @@ impl DataType {
             return DataType::Decimal(Self::precision_mul(d1, diff) + d2, p2);
         }
     }
-    
+
     fn sum(acc: DataType, next: DataType) -> DataType {
         let num1;
         let p1;
@@ -85,11 +86,11 @@ impl DataType {
             DataType::Int(n) => {
                 num1 = n;
                 p1 = 0;
-            },
+            }
             DataType::Decimal(n, p) => {
                 num1 = n;
                 p1 = p;
-            },
+            }
             DataType::String(_) => {
                 num1 = 0;
                 p1 = 0;
@@ -99,11 +100,11 @@ impl DataType {
             DataType::Int(n) => {
                 num2 = n;
                 p2 = 0;
-            },
+            }
             DataType::Decimal(n, p) => {
                 num2 = n;
                 p2 = p;
-            },
+            }
             DataType::String(_) => {
                 num2 = 0;
                 p2 = 0;
@@ -112,7 +113,7 @@ impl DataType {
 
         Self::add(num1, num2, p1, p2)
     }
-    
+
     fn precision_mul(num: i64, prec: u8) -> i64 {
         if prec == 0 {
             return num;
@@ -140,23 +141,20 @@ impl std::fmt::Display for DataType {
                     v_str.insert(v_str.len() - dec_pos, '.');
                     v_str.fmt(f)
                 }
-            },
+            }
             DataType::Int(n) => n.fmt(f),
             DataType::String(s) => s.fmt(f),
         }
     }
 }
 
-
-
 #[derive(Eq, Hash, PartialEq, Debug, Clone)]
 pub struct Selection {
     pub column: Column,
-    pub value: Vec<Value>,
+    pub value: Value,
 }
 
-pub type DataContextCallback = fn(&DataContext) -> (); 
-
+pub type DataContextCallback = fn(&DataContext) -> ();
 
 pub struct DataContext<'a> {
     table: &'a Table,
@@ -216,7 +214,8 @@ impl DataContext<'_> {
                     _ => false,
                 })
                 .cloned()
-                .reduce(DataType::sum).unwrap_or(DataType::Int(0))
+                .reduce(DataType::sum)
+                .unwrap_or(DataType::Int(0))
         })
     }
 
@@ -232,7 +231,7 @@ impl DataContext<'_> {
                 })
                 .cloned()
                 .max_by(DataType::cmp)
-                // .reduce(DataType::max)
+            // .reduce(DataType::max)
         })
     }
 
@@ -248,7 +247,7 @@ impl DataContext<'_> {
                 })
                 .cloned()
                 .min_by(DataType::cmp)
-                // .reduce(DataType::min)
+            // .reduce(DataType::min)
         })
     }
 }
@@ -295,6 +294,10 @@ impl Table {
         v.push(self.records.len());
     }
 
+    pub fn get_columns(&self) -> &Columns {
+        &self.columns
+    }
+
     pub fn get_col_index(&self, col: &str) -> Option<usize> {
         for (i, column) in self.columns.iter().enumerate() {
             if column == col {
@@ -328,19 +331,17 @@ impl Table {
 
         let mut bts = BTreeSet::new();
         let empty = Vec::new();
-        for s in selection {
-            for v in &s.value {
-                let rows = self
-                    .index
-                    .get(&IndexValue {
-                        column: String::from(&s.column),
-                        value: String::from(v),
-                    })
-                    .unwrap_or(&empty)
-                    .clone();
-                for row in rows {
-                    bts.insert(row);
-                }
+        for Selection { column, value } in selection {
+            let rows = self
+                .index
+                .get(&IndexValue {
+                    column: String::from(column),
+                    value: String::from(value),
+                })
+                .unwrap_or(&empty)
+                .clone();
+            for row in rows {
+                bts.insert(row);
             }
         }
 
@@ -382,14 +383,20 @@ impl Model {
         table
     }
 
-    /// get the unique values for a given column
-    pub fn get_all_values(&self, col: &str) -> Vec<&DataType> {
-        let tables_and_col_indices: Vec<(&Table, usize)> = self.tables.iter()
+    fn get_tables_and_col_indices(&self, col: &str) -> Vec<(&Table, usize)> {
+        let tables_and_col_indices: Vec<(&Table, usize)> = self
+            .tables
+            .iter()
             .map(|t| (t, t.get_col_index(col)))
             .filter(|(t, index)| *index != None)
             .map(|(t, index)| (t, index.unwrap()))
             .collect();
+        tables_and_col_indices
+    }
 
+    /// get the unique values for a given column
+    pub fn get_all_values(&self, col: &str) -> Vec<&DataType> {
+        let tables_and_col_indices = self.get_tables_and_col_indices(col);
 
         let mut bset: BTreeSet<&DataType> = std::collections::btree_set::BTreeSet::new();
 
@@ -400,13 +407,13 @@ impl Model {
         }
 
         let vec: Vec<&DataType> = bset.into_iter().collect();
-        
+
         vec
     }
 
     /// starts a new data context for the model
     pub fn new_data_context(&self) -> ModelContext {
-        ModelContext::new()
+        ModelContext::new(self)
     }
 
     /// get values and their associative state for a given column
@@ -427,13 +434,15 @@ impl Model {
     // }
 }
 
-pub struct ModelContext {
+pub struct ModelContext<'a> {
+    model: &'a Model,
     selection: Vec<Selection>,
 }
 
-impl ModelContext {
-    pub fn new() -> ModelContext {
+impl ModelContext<'_> {
+    pub fn new<'a>(model: &'a Model) -> ModelContext {
         ModelContext {
+            model: model,
             selection: vec![],
         }
     }
@@ -450,11 +459,62 @@ impl ModelContext {
 
         self
     }
+
+    pub fn get_selected(&self, col: &str) -> Vec<&DataType> {
+        todo!()
+    }
+
+    pub fn get_possible(&self, col: &str) -> Vec<&DataType> {
+        // country
+        let target_tables = self.model.get_tables_and_col_indices(col);
+
+        let mut by_col = HashMap::new(); // item=phone
+        for s in &self.selection {
+            let values = by_col.entry(s.column.as_str()).or_insert(Vec::new());
+            values.push(s.value.as_str());
+        }
+
+        let mut virtual_selection: Vec<Selection> = self.selection.clone();
+
+        // for each column with selected values
+        // find tables
+        // for each table find records matching selection
+        // add all selected values to virtual selection
+        for (selected_column, selected_values) in by_col {
+            let ts = self.model.get_tables_and_col_indices(selected_column);
+            for (table, col_index) in &ts {
+                let possible_records = table.get_possible(&self.selection);
+                for record in &possible_records {
+                    for (index, column) in table.get_columns().iter().enumerate() {
+                        virtual_selection.push(Selection {
+                            column: String::from(column),
+                            value: record[index].to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Get values from tables with column
+        let mut values: BTreeSet<&DataType> = BTreeSet::new();
+        for (table, col_index) in &target_tables {
+            let records = table.get_possible(&virtual_selection);
+            for record in &records {
+                values.insert(record.get(*col_index).unwrap());
+            }
+        }
+
+        values.into_iter().collect()
+    }
+
+    pub fn get_excluded(&self, col: &str) -> Vec<&DataType> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
 mod test {
-use super::*;
+    use super::*;
 
     fn copy_strings(strs: &Vec<&str>) -> Vec<String> {
         strs.into_iter().map(|&s| String::from(s)).collect()
@@ -481,14 +541,41 @@ use super::*;
         m
     }
 
+    fn fixture_model() -> Model {
+        let data1 = vec![
+            vec!["name", "country"],
+            vec!["ni", "swe"],
+            vec!["ai", "swe"],
+            vec!["ni", "swe"],
+            vec!["qe", "cn"],
+            vec!["usa", "usa"],
+        ];
+        let t1 = table("t1", data1);
+
+        let data2 = vec![
+            vec!["name", "item"],
+            vec!["ni", "phone"],
+            vec!["ni", "keys"],
+            vec!["ai", "toy"],
+            vec!["qe", "sandwich"],
+        ];
+        let t2 = table("t2", data2);
+
+        let data3 = vec![
+            vec!["item", "price"],
+            vec!["phone", "10"],
+            vec!["sandwich", "1.5"],
+            vec!["toy", "2"],
+        ];
+        let t3 = table("t3", data3);
+
+        let m = model(vec![t1, t2, t3]);
+        m
+    }
+
     #[test]
     fn model_get_values_1() {
-        let data = vec![
-            vec!["name"],
-            vec!["ni"],
-            vec!["ai"],
-            vec!["ni"],
-        ];
+        let data = vec![vec!["name"], vec!["ni"], vec!["ai"], vec!["ni"]];
 
         let t1 = table("t1", data);
 
@@ -505,12 +592,7 @@ use super::*;
     #[test]
     fn model_get_values_2() {
         // Arrange
-        let data1 = vec![
-            vec!["name"],
-            vec!["ni"],
-            vec!["ai"],
-            vec!["ni"],
-        ];
+        let data1 = vec![vec!["name"], vec!["ni"], vec!["ai"], vec!["ni"]];
         let t1 = table("t1", data1);
 
         let data2 = vec![
@@ -538,6 +620,26 @@ use super::*;
         let item_refs: Vec<&DataType> = item_values.iter().collect();
 
         assert_eq!(get_items, item_refs);
+    }
 
+    #[test]
+    fn model_get_values_3() {
+        let model = fixture_model();
+
+        let mut ctx = model.new_data_context();
+        ctx.select(&Selection { column: String::from("item"), value: String::from("phone") });
+        ctx.select(&Selection { column: String::from("item"), value: String::from("sandwich") });
+
+        let possible_countries = ctx.get_possible("country");
+
+        assert_eq!(possible_countries, vec![&DataType::from_string("cn"), &DataType::from_string("swe")]);
+
+        let possible_names = ctx.get_possible("name");
+
+        assert_eq!(possible_names, vec![&DataType::from_string("ni"), &DataType::from_string("qe")]);
+
+        let possible_prices = ctx.get_possible("price");
+        
+        assert_eq!(possible_prices, vec![&DataType::from_string("1.5"), &DataType::from_string("10")])
     }
 }

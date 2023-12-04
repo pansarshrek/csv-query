@@ -1,5 +1,5 @@
-mod model;
 mod ast;
+mod model;
 
 use std::env;
 use std::fs;
@@ -101,8 +101,6 @@ impl Commands {
     }
 }
 
-
-
 fn main() -> io::Result<()> {
     let commands = Commands::from_args();
     println!("commands: {:#?}", &commands);
@@ -151,15 +149,27 @@ fn main() -> io::Result<()> {
 
     let mut ctx = t.new_context();
     ctx.observe(|ctx| {
-        println!("sum age: {}", ctx.sum(String::from("age")).unwrap_or(model::DataType::Int(0)));
+        println!(
+            "sum age: {}",
+            ctx.sum(String::from("age"))
+                .unwrap_or(model::DataType::Int(0))
+        );
     });
 
     ctx.observe(|ctx| {
-        println!("max age: {}", ctx.max(String::from("age")).unwrap_or(model::DataType::Int(0)));
+        println!(
+            "max age: {}",
+            ctx.max(String::from("age"))
+                .unwrap_or(model::DataType::Int(0))
+        );
     });
 
     ctx.observe(|ctx| {
-        println!("min age: {}", ctx.min(String::from("age")).unwrap_or(model::DataType::Int(0)));
+        println!(
+            "min age: {}",
+            ctx.min(String::from("age"))
+                .unwrap_or(model::DataType::Int(0))
+        );
     });
 
     loop {
@@ -174,7 +184,7 @@ fn main() -> io::Result<()> {
             continue;
         }
 
-        let sel: model::Selection;
+        let sel: Vec<model::Selection>;
 
         match tokens[0] {
             "select" | "deselect" => {
@@ -182,47 +192,34 @@ fn main() -> io::Result<()> {
                     println!("Invalid select argument");
                     continue;
                 }
-            
+
                 let parts: Vec<&str> = tokens[1].split("=").collect();
-                sel = model::Selection {
-                    column: String::from(parts[0]),
-                    value: parts[1].split(",").map(|s| s.trim_end()).map(String::from).collect(),
-                };
-            },
+
+                sel = parts[1]
+                    .split(",")
+                    .map(|s| s.trim_end())
+                    .map(|val| model::Selection {
+                        column: String::from(parts[0]),
+                        value: String::from(val),
+                    })
+                    .collect();
+            }
             _ => {
                 println!("Unrecognized command");
                 continue;
-            },
+            }
         }
 
         println!("{}: {:#?}", tokens[0], sel);
 
         if tokens[0] == "select" {
-            ctx.select(&sel);
+            for s in sel {
+                ctx.select(&s);
+            }
         } else {
-            ctx.deselect(&sel);
+            for s in sel {
+                ctx.deselect(&s);
+            }
         }
-
-
     }
-    
-
-    println!("count before select: {}", ctx.count());
-    for s in &commands.select {
-        ctx.select(s);
-    }
-    println!("count after select: {}", ctx.count());
-
-    for s in &commands.select {
-        ctx.deselect(s);
-    }
-
-
-
-
-    println!("Querying finished. Time elapsed: {} ms", start_fetch.elapsed().as_millis());
-
-    // let records = t.get_possible(&commands.select);
-    // let count = t.count(&commands.select);
-    // println!("Got {} records. Time elapsed: {} ms", records.len(), start_fetch.elapsed().as_millis());
 }
