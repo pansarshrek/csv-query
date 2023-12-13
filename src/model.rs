@@ -512,9 +512,34 @@ impl ModelContext<'_> {
     }
 }
 
+pub struct BetterSelection<'a> {
+    pub selected_values: HashMap<&'a str, Vec<&'a str>>
+}
+
+impl BetterSelection<'_> {
+    pub fn new<'a>(vals: Vec<(&'a str, Vec<&'a str>)>) -> BetterSelection<'a> {
+        let mut bs = BetterSelection {
+            selected_values: HashMap::new()
+        };
+
+        for (k, v) in vals {
+            bs.selected_values.insert(k, v);
+        }
+
+        return bs;
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn make_selection() {
+        let mut bs = BetterSelection{ selected_values: HashMap::new() };
+
+        bs = BetterSelection::new(vec![("name", vec!["ni", "ai"]), ("country", vec!["swe"])]);
+    }
 
     fn copy_strings(strs: &Vec<&str>) -> Vec<String> {
         strs.into_iter().map(|&s| String::from(s)).collect()

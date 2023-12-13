@@ -1,5 +1,6 @@
 mod ast;
 mod model;
+mod join;
 
 use std::env;
 use std::fs;
